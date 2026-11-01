@@ -72,7 +72,7 @@ async function iceServers(env) {
 }
 
 const MAX_PLAYERS = 4;
-const REJOIN_GRACE_MS = 180000;  // 3 minutes grace period
+const REJOIN_GRACE_MS = 900000;  // 15 minutes grace period for internet drop recovery
 
 // One room: the first peer to join hosts. Peers say hello (name, game build), the host starts the session
 // (fixing the player count and input delay), then every input/hash batch a peer sends is relayed to the
