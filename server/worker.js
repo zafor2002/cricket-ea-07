@@ -259,6 +259,7 @@ export default {
       return respond(JSON.stringify({ ticket, iceServers: await iceServers(env) }), 200,
         { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...cors(request, env) });
     }
-    return respond('Netplay room server. Open the game page with ?netplay=' + url.origin, 404);
+    if (url.pathname === '/') return Response.redirect('https://cricket07.dhaiwat.com/?netplay=' + url.origin, 302);
+    return respond('Not found', 404);
   },
 };
