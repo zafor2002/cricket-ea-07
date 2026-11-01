@@ -41,7 +41,7 @@
     let ws = null;
     let started = false, closing = false, retries = 0, heard = Date.now();
     const history = [];       // our recent input batches, resent after a reconnect
-    const HISTORY = 600;
+    const HISTORY = 3600;  // 1 minute input history
     const recent = [];        // our last few inputs, repeated in every direct packet
     const REPEAT = 8;
     let game = null;          // the Emscripten module once attached
