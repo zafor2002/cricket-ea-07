@@ -129,13 +129,23 @@ export class NetplayRoom {
     if (msg.t === 'rejoin' && me.slot < 0) {   // a player of a running game whose connection dropped
       const started = await this.ctx.storage.get('started');
       const slot = Number(msg.slot);
-      const away = (await this.ctx.storage.get('away')) || {};
-      if (!started || !(slot in away) || this.peers().some((p) => p.slot === slot)) {
+      if (!started || isNaN(slot) || slot < 0 || slot >= started.players) {
         this.send(ws, { t: 'error', msg: 'Could not rejoin the game.' }); ws.close(4002, 'rejoin'); return;
       }
-      ws.serializeAttachment({ ...away[slot], slot });
-      delete away[slot];
-      await this.ctx.storage.put('away', away);
+      // Evict any ghost connection for this slot left over from the previous Wi-Fi connection
+      for (const p of this.peers()) {
+        if (p.slot === slot && p.ws !== ws) {
+          p.ws.serializeAttachment({ ...p, slot: -1 });
+          try { p.ws.close(1000, 'Replaced by new connection'); } catch {}
+        }
+      }
+      const away = (await this.ctx.storage.get('away')) || {};
+      const prev = away[slot] || { name: `Player ${slot + 1}`, version: String(msg.version || '') };
+      if (away[slot]) {
+        delete away[slot];
+        await this.ctx.storage.put('away', away);
+      }
+      ws.serializeAttachment({ ...prev, slot, rtt: 0 });
       this.send(ws, { t: 'rejoined', slot });
       return;
     }

@@ -174,6 +174,8 @@
         opts.onLobby?.(m);
       } else if (m.t === 'start') { started = true; opts.onStart?.(m); }
       else if (m.t === 'rejoined') {   // back in the game: resend what may have been lost
+        for (const p of peers.values()) { try { p.pc?.close(); } catch {} }
+        peers.clear();
         for (const text of history) ws.send(text);
         opts.onReconnect?.('rejoined');
       }
@@ -209,6 +211,9 @@
       for (const p of peers.values()) if (p.dc?.readyState === 'open') p.dc.send(direct);
     }
 
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', () => { if (started && !closing) abandon(); });
+    }
     open(opts.url, false);
 
     return {
