@@ -58,7 +58,12 @@ async function ticketValid(env, ticket) {
 // can't reach each other directly (symmetric NATs, firewalls), which beats going through the room when the
 // room is far away. Credentials last a day, longer than a game.
 async function iceServers(env) {
-  const stun = [{ urls: 'stun:stun.cloudflare.com:3478' }];
+  const stun = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' }
+  ];
   if (!env.TURN_KEY_ID || !env.TURN_KEY_API_TOKEN) return stun;
   const res = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${env.TURN_KEY_ID}/credentials/generate-ice-servers`, {
     method: 'POST', body: JSON.stringify({ ttl: 86400 }),
@@ -98,7 +103,8 @@ export class NetplayRoom {
   }
 
   peers() {
-    return this.ctx.getWebSockets().map((ws) => ({ ws, ...ws.deserializeAttachment() })).filter((p) => p.slot >= 0);
+    this.activePeers = this.ctx.getWebSockets().map((ws) => ({ ws, ...ws.deserializeAttachment() })).filter((p) => p.slot >= 0);
+    return this.activePeers;
   }
 
   send(ws, msg) { try { ws.send(JSON.stringify(msg)); } catch { /* closed */ } }
@@ -177,8 +183,9 @@ export class NetplayRoom {
       if (!(await this.ctx.storage.get('started'))) await this.lobby();
       return;
     }
-    if (msg.t === 'in') {   // relay as-is to everyone else
-      for (const p of this.peers()) if (p.slot !== me.slot) try { p.ws.send(data); } catch { /* closed */ }
+    if (msg.t === 'in') {   // relay as-is to everyone else with zero-overhead cached peers
+      const targets = this.activePeers || this.peers();
+      for (const p of targets) if (p.slot !== me.slot) try { p.ws.send(data); } catch { /* closed */ }
     }
   }
 
@@ -234,8 +241,8 @@ function nearestRegion(cf) {
     case 'EU': return lon > 20 ? 'eeur' : 'weur';
     case 'AF': return 'afr';
     case 'OC': return 'oc';
-    case 'AS': return cf?.country && ['AE', 'SA', 'QA', 'BH', 'KW', 'OM', 'IL', 'JO', 'TR'].includes(cf.country) ? 'me' : 'apac';
-    default: return undefined;
+    case 'AS': return 'apac-se'; // Singapore / Southeast Asia (lowest ping for South/East Asia)
+    default: return 'apac-se';
   }
 }
 
