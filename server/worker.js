@@ -256,6 +256,78 @@ async function netplay(request, env, url) {
   return env.ROOMS.get(env.ROOMS.idFromName(code), hint ? { locationHint: hint } : {}).fetch(request);
 }
 
+const UPSTREAM = 'https://cricket07.dhaiwat.com';
+
+async function serveProxy(request, url) {
+  const pathname = url.pathname === '/' ? '/index.html' : url.pathname;
+  const upstreamUrl = new URL(pathname + url.search, UPSTREAM);
+
+  const forwardHeaders = new Headers();
+  for (const h of ['range', 'if-none-match', 'if-modified-since', 'accept', 'accept-encoding']) {
+    const v = request.headers.get(h);
+    if (v) forwardHeaders.set(h, v);
+  }
+  forwardHeaders.set('User-Agent', request.headers.get('User-Agent') || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
+
+  const upstreamRes = await fetch(upstreamUrl.toString(), {
+    method: request.method,
+    headers: forwardHeaders,
+  });
+
+  // Handle HTML (index.html or /)
+  if (pathname === '/index.html') {
+    let html = await upstreamRes.text();
+    // Strip date killswitch that disabled multiplayer
+    html = html.replace(/\s*data-mp-ends="[^"]*"/gi, '');
+    // Hide shutdown notice banner
+    html = html.replace(/<span id="mp-notice"[^>]*>[\s\S]*?<\/span>/gi, '<span id="mp-notice" class="choice-notice hidden"></span>');
+    // Ensure go-online button is never disabled in markup
+    html = html.replace(/<button id="go-online"([^>]*)disabled([^>]*)>/gi, '<button id="go-online"$1$2>');
+
+    return new Response(html, {
+      status: upstreamRes.status,
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cross-Origin-Opener-Policy': 'same-origin',
+        'Cross-Origin-Embedder-Policy': 'require-corp',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+      },
+    });
+  }
+
+  // Handle c07.js
+  if (pathname === '/c07.js') {
+    let js = await upstreamRes.text();
+    // Neutralize any client-side multiplayer shutdown logic
+    js = js.replace(/const multiplayerEnded = \(\) => [^;]+;/, 'const multiplayerEnded = () => false;');
+    js = js.replace(/const MP_ENDS = [^;]+;/, 'const MP_ENDS = NaN;');
+
+    return new Response(js, {
+      status: upstreamRes.status,
+      headers: {
+        'Content-Type': 'application/javascript; charset=utf-8',
+        'Cross-Origin-Resource-Policy': 'cross-origin',
+        'Cache-Control': 'public, max-age=3600',
+      },
+    });
+  }
+
+  // Handle static assets & streaming wasm
+  const resHeaders = new Headers(upstreamRes.headers);
+  resHeaders.set('Cross-Origin-Opener-Policy', 'same-origin');
+  resHeaders.set('Cross-Origin-Embedder-Policy', 'require-corp');
+  resHeaders.set('Cross-Origin-Resource-Policy', 'cross-origin');
+  resHeaders.set('Access-Control-Allow-Origin', '*');
+  resHeaders.set('Access-Control-Expose-Headers', 'ETag, Content-Length, Content-Range, Accept-Ranges');
+  resHeaders.delete('Content-Security-Policy');
+
+  return new Response(upstreamRes.body, {
+    status: upstreamRes.status,
+    statusText: upstreamRes.statusText,
+    headers: resHeaders,
+  });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -269,7 +341,6 @@ export default {
       return respond(JSON.stringify({ ticket, iceServers: await iceServers(env) }), 200,
         { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...cors(request, env) });
     }
-    if (url.pathname === '/') return Response.redirect('https://cricket07.dhaiwat.com/?netplay=' + url.origin, 302);
-    return respond('Not found', 404);
+    return serveProxy(request, url);
   },
 };
